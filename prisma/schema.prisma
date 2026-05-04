@@ -1,0 +1,110 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  CUSTOMER
+  PRINTER
+  ADMIN
+}
+
+enum DecalType {
+  TEXT
+  IMAGE
+}
+
+enum ShirtSize {
+  XS
+  S
+  M
+  L
+  XL
+  XXL
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PRINTING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  password  String
+  name      String
+  role      Role     @default(CUSTOMER)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  designs Design[]
+  orders  Order[]
+}
+
+model Design {
+  id          Int      @id @default(autoincrement())
+  userId      Int
+  name        String   @default("My Design")
+  shirtColor  String   @default("#ffffff")
+  isPublic    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user   User    @relation(fields: [userId], references: [id])
+  decals Decal[]
+  orders Order[]
+}
+
+model Decal {
+  id          Int       @id @default(autoincrement())
+  designId    Int
+  type        DecalType
+  side        String    @default("front")
+
+  // Position, orientation, scale
+  positionX    Float @default(0)
+  positionY    Float @default(0)
+  positionZ    Float @default(0)
+  orientationX Float @default(0)
+  orientationY Float @default(0)
+  orientationZ Float @default(0)
+  scaleX       Float @default(1)
+  scaleY       Float @default(1)
+  scaleZ       Float @default(1)
+
+  // TEXT fields
+  text      String?
+  font      String?
+  fontSize  Float?
+  textColor String?
+
+  // IMAGE fields
+  imageUrl  String?
+  publicId  String?   // Cloudinary public ID for deletion
+
+  createdAt DateTime @default(now())
+
+  design Design @relation(fields: [designId], references: [id], onDelete: Cascade)
+}
+
+model Order {
+  id        Int         @id @default(autoincrement())
+  userId    Int
+  designId  Int
+  status    OrderStatus @default(PENDING)
+  size      ShirtSize
+  address   Json
+  notes     String?
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  user   User   @relation(fields: [userId], references: [id])
+  design Design @relation(fields: [designId], references: [id])
+}
