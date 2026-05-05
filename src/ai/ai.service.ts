@@ -13,7 +13,6 @@ export class AiService {
     private ollamaProvider: OllamaProvider,
     private openaiProvider: OpenAIProvider,
   ) {
-    // اختر الـ provider بناءً على البيئة
     const isDev = config.get('NODE_ENV') !== 'production';
     this.provider = isDev ? ollamaProvider : openaiProvider;
   }

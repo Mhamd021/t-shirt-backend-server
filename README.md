@@ -1,98 +1,419 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# T-Shirt Model Backend
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+Professional backend API for the T-Shirt Model project. This server powers user authentication, saved shirt designs, image uploads, AI-assisted design generation, order management, printer/admin workflows, and email notifications.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+The application is built with **NestJS**, **TypeScript**, **Prisma**, and **PostgreSQL**. It is designed as a modular API that supports the frontend T-shirt customizer and the operational flow from customer design creation to printable order fulfillment.
 
-## Description
+## Table of Contents
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+- [Tech Stack](#tech-stack)
+- [Backend Responsibilities](#backend-responsibilities)
+- [Project Structure](#project-structure)
+- [Core Modules](#core-modules)
+- [Getting Started](#getting-started)
+- [Environment Variables](#environment-variables)
+- [Database and Prisma](#database-and-prisma)
+- [API Overview](#api-overview)
+- [AI Provider Behavior](#ai-provider-behavior)
+- [Available Scripts](#available-scripts)
+- [Docker Usage](#docker-usage)
+- [Testing](#testing)
+- [Production Notes](#production-notes)
 
-## Project setup
+## Tech Stack
 
-```bash
-$ npm install
+- **Runtime:** Node.js 20+
+- **Framework:** NestJS 11
+- **Language:** TypeScript
+- **Database:** PostgreSQL
+- **ORM:** Prisma
+- **Authentication:** Passport JWT
+- **Password Hashing:** bcrypt
+- **Validation:** class-validator and NestJS `ValidationPipe`
+- **File Uploads:** Multer
+- **Image Storage:** Cloudinary
+- **Background Removal:** remove.bg API
+- **Email Delivery:** Resend
+- **AI Providers:** Ollama for development, OpenAI for production
+- **Testing:** Jest and Supertest
+
+## Backend Responsibilities
+
+This server handles the backend domain for a custom T-shirt design platform:
+
+- Registering and authenticating users.
+- Issuing JWT tokens for protected API access.
+- Managing customer-created shirt designs.
+- Persisting decals, text layers, image layers, placement, scale, and orientation.
+- Uploading decal images to Cloudinary.
+- Removing image backgrounds before upload when requested.
+- Generating AI design suggestions, color palettes, and decal text ideas.
+- Creating customer orders from saved designs.
+- Tracking order status through the production pipeline.
+- Supporting printer and admin role-based workflows.
+- Sending order notifications to the configured printer email address.
+
+## Project Structure
+
+```text
+server/
+|-- prisma/
+|   |-- schema.prisma          # Prisma database schema
+|   `-- migrations/            # Database migration history
+|-- src/
+|   |-- admin/                 # Admin-only user role management
+|   |-- ai/                    # AI endpoints and provider abstraction
+|   |   `-- providers/         # Ollama and OpenAI provider implementations
+|   |-- auth/                  # Registration, login, JWT strategy
+|   |-- common/                # Shared decorators and guards
+|   |-- design/                # Design CRUD and decal persistence
+|   |-- mail/                  # Resend email notifications
+|   |-- order/                 # Order creation and status management
+|   |-- prisma/                # Prisma service and module
+|   |-- upload/                # Cloudinary uploads and background removal
+|   |-- users/                 # User lookup and role updates
+|   |-- app.module.ts          # Root application module
+|   `-- main.ts                # Application bootstrap
+|-- test/                      # End-to-end test configuration
+|-- Dockerfile                 # Server container build
+|-- package.json               # Scripts and dependencies
+`-- README.md
 ```
 
-## Compile and run the project
+## Core Modules
+
+### Auth Module
+
+Provides registration, login, JWT generation, and current-user lookup.
+
+Main routes:
+
+- `POST /auth/register`
+- `POST /auth/login`
+- `GET /auth/me`
+
+### Users Module
+
+Encapsulates user access and update logic. It is used by authentication and admin workflows.
+
+### Design Module
+
+Manages saved shirt designs for authenticated users. A design can include:
+
+- Shirt color.
+- Design name.
+- Visibility flag.
+- Text decals.
+- Image decals.
+- Decal side, position, orientation, and scale.
+
+Main routes:
+
+- `POST /designs`
+- `GET /designs`
+- `GET /designs/:id`
+- `PUT /designs/:id`
+- `DELETE /designs/:id`
+
+### Upload Module
+
+Handles protected image upload flows:
+
+- Upload original images to Cloudinary.
+- Remove an image background through remove.bg.
+- Upload the cleaned image to Cloudinary.
+
+Main routes:
+
+- `POST /upload/image`
+- `POST /upload/image/remove-bg`
+
+Both routes expect a multipart form-data file field named `file`.
+
+### AI Module
+
+Provides AI-assisted design tools for authenticated users:
+
+- T-shirt design suggestions.
+- Color palette generation.
+- Short decal text ideas.
+
+Main routes:
+
+- `POST /ai/design-suggestions`
+- `POST /ai/color-palette`
+- `POST /ai/decal-text`
+
+### Order Module
+
+Handles customer orders and printer/admin order operations.
+
+Customer capabilities:
+
+- Create an order from a saved design.
+- View their own orders.
+- View a specific order that belongs to them.
+
+Printer/admin capabilities:
+
+- View all orders.
+- Update order status.
+
+Main routes:
+
+- `POST /orders`
+- `GET /orders/my`
+- `GET /orders/:id`
+- `GET /orders`
+- `PATCH /orders/:id/status`
+
+### Admin Module
+
+Provides admin-only user role management.
+
+Main route:
+
+- `PATCH /admin/users/:id/role`
+
+Supported roles are defined in Prisma:
+
+- `CUSTOMER`
+- `PRINTER`
+- `ADMIN`
+
+### Mail Module
+
+Sends new-order notifications to the configured printer email address using Resend.
+
+## Getting Started
+
+### 1. Install dependencies
 
 ```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+npm install
 ```
 
-## Run tests
+### 2. Configure environment variables
+
+Create a `.env` file inside the `server/` directory and provide the values described in [Environment Variables](#environment-variables).
+
+### 3. Generate the Prisma client
 
 ```bash
-# unit tests
-$ npm run test
-
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+npm run prisma:generate
 ```
 
-## Deployment
-
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+### 4. Apply database migrations
 
 ```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+npm run prisma:migrate:dev
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+For quick local schema synchronization without creating a migration:
 
-## Resources
+```bash
+npm run prisma:push
+```
 
-Check out a few resources that may come in handy when working with NestJS:
+### 5. Start the development server
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+```bash
+npm run start:dev
+```
 
-## Support
+By default, the API listens on:
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+```text
+http://localhost:3001
+```
 
-## Stay in touch
+## Environment Variables
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+The server reads configuration from environment variables through `@nestjs/config`, `dotenv`, Prisma, and provider-specific services.
 
-## License
+```env
+PORT=3001
+NODE_ENV=development
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+DATABASE_URL="postgresql://USER:PASSWORD@HOST:5432/DATABASE"
+JWT_SECRET="replace-with-a-secure-secret"
+
+CLOUDINARY_CLOUD_NAME="your-cloudinary-cloud-name"
+CLOUDINARY_API_KEY="your-cloudinary-api-key"
+CLOUDINARY_API_SECRET="your-cloudinary-api-secret"
+
+REMOVEBG_API_KEY="your-removebg-api-key"
+
+RESEND_API_KEY="your-resend-api-key"
+PRINTER_EMAIL="printer@example.com"
+
+OPENAI_API_KEY="your-openai-api-key"
+```
+
+Notes:
+
+- `OPENAI_API_KEY` is required for production AI generation.
+- In development, the AI service uses Ollama by default.
+- `DATABASE_URL` is required by the Prisma service.
+- `JWT_SECRET` should be a strong secret in every non-local environment.
+
+## Database and Prisma
+
+The Prisma schema defines the main backend domain:
+
+- `User`
+- `Design`
+- `Decal`
+- `Order`
+
+Important enums:
+
+- `Role`: `CUSTOMER`, `PRINTER`, `ADMIN`
+- `DecalType`: `TEXT`, `IMAGE`
+- `ShirtSize`: `XS`, `S`, `M`, `L`, `XL`, `XXL`
+- `OrderStatus`: `PENDING`, `CONFIRMED`, `PRINTING`, `SHIPPED`, `DELIVERED`, `CANCELLED`
+
+Useful Prisma commands:
+
+```bash
+npm run prisma:generate
+npm run prisma:migrate:dev
+npm run prisma:push
+npm run prisma:studio
+```
+
+## API Overview
+
+Most application routes are protected with JWT authentication. Send the access token returned by login in the `Authorization` header:
+
+```text
+Authorization: Bearer <access_token>
+```
+
+### Authentication
+
+```http
+POST /auth/register
+POST /auth/login
+GET  /auth/me
+```
+
+### Designs
+
+```http
+POST   /designs
+GET    /designs
+GET    /designs/:id
+PUT    /designs/:id
+DELETE /designs/:id
+```
+
+### Uploads
+
+```http
+POST /upload/image
+POST /upload/image/remove-bg
+```
+
+### AI
+
+```http
+POST /ai/design-suggestions
+POST /ai/color-palette
+POST /ai/decal-text
+```
+
+### Orders
+
+```http
+POST  /orders
+GET   /orders/my
+GET   /orders/:id
+GET   /orders
+PATCH /orders/:id/status
+```
+
+### Admin
+
+```http
+PATCH /admin/users/:id/role
+```
+
+## AI Provider Behavior
+
+The AI module uses a provider interface so the application can swap AI backends without changing controller logic.
+
+- In non-production environments, the service uses **Ollama** at `http://localhost:11434` with the `tinyllama` model.
+- In production, the service uses **OpenAI** through the configured `OPENAI_API_KEY`.
+
+The provider abstraction supports:
+
+- `generateDesignSuggestions(prompt)`
+- `generateColorPalette(theme)`
+- `generateDecalText(context)`
+
+## Available Scripts
+
+```bash
+npm run build              # Compile the NestJS app
+npm run start              # Start the app
+npm run start:dev          # Start in watch mode
+npm run start:debug        # Start in debug watch mode
+npm run start:prod         # Run compiled output from dist/
+npm run format             # Format source and test files
+npm run lint               # Run ESLint with auto-fix
+npm run test               # Run unit tests
+npm run test:watch         # Run unit tests in watch mode
+npm run test:cov           # Run unit tests with coverage
+npm run test:e2e           # Run end-to-end tests
+npm run prisma:generate    # Generate Prisma client
+npm run prisma:migrate:dev # Create/apply development migrations
+npm run prisma:push        # Push schema changes to the database
+npm run prisma:studio      # Open Prisma Studio
+```
+
+## Docker Usage
+
+The server includes a `Dockerfile` and is also wired into the root `docker-compose.yml`.
+
+From the repository root:
+
+```bash
+docker compose up --build
+```
+
+The compose stack includes:
+
+- Frontend application.
+- NestJS server.
+- PostgreSQL database.
+- Nginx reverse proxy.
+
+## Testing
+
+Run unit tests:
+
+```bash
+npm run test
+```
+
+Run end-to-end tests:
+
+```bash
+npm run test:e2e
+```
+
+Generate coverage:
+
+```bash
+npm run test:cov
+```
+
+## Production Notes
+
+- Set `NODE_ENV=production` to use the OpenAI provider.
+- Provide secure production values for `JWT_SECRET`, `DATABASE_URL`, and all third-party API keys.
+- Run `npm run build` before `npm run start:prod`.
+- Apply Prisma migrations before serving production traffic.
+- Use a managed PostgreSQL database or a properly backed-up database volume.
+- Keep Cloudinary, remove.bg, Resend, and OpenAI keys outside source control.
