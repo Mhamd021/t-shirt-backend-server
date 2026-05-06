@@ -7,7 +7,7 @@ RUN npm install
 
 COPY . .
 
-ARG DATABASE_URL
+ARG DATABASE_URL="postgresql://placeholder:placeholder@localhost:5432/placeholder"
 ENV DATABASE_URL=${DATABASE_URL}
 
 RUN npx prisma generate
