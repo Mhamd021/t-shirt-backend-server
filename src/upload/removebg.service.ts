@@ -1,10 +1,12 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import FormData from 'form-data';
 import fetch from 'node-fetch';
 
 @Injectable()
 export class RemoveBgService {
+  private readonly logger = new Logger(RemoveBgService.name);
+
   constructor(private config: ConfigService) {}
 
   async removeBackground(imageBuffer: Buffer): Promise<Buffer> {
@@ -25,7 +27,13 @@ export class RemoveBgService {
     });
 
     if (!response.ok) {
-      throw new BadRequestException('Background removal failed');
+      const errorBody = await response.text();
+      this.logger.error(
+        `remove.bg failed with status ${response.status}: ${errorBody}`,
+      );
+      throw new BadRequestException(
+        `Background removal failed with status ${response.status}`,
+      );
     }
 
     const arrayBuffer = await response.arrayBuffer();
