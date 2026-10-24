@@ -28,6 +28,7 @@ enum ShirtSize {
 
 enum OrderStatus {
   PENDING
+  SENT
   CONFIRMED
   PRINTING
   SHIPPED
@@ -65,10 +66,9 @@ model Design {
 model Decal {
   id          Int       @id @default(autoincrement())
   designId    Int
-  type        DecalType
+  type        DecalType 
   side        String    @default("front")
 
-  // Position, orientation, scale
   positionX    Float @default(0)
   positionY    Float @default(0)
   positionZ    Float @default(0)
@@ -79,15 +79,13 @@ model Decal {
   scaleY       Float @default(1)
   scaleZ       Float @default(1)
 
-  // TEXT fields
   text      String?
   font      String?
   fontSize  Float?
   textColor String?
 
-  // IMAGE fields
   imageUrl  String?
-  publicId  String?   // Cloudinary public ID for deletion
+  publicId  String?  
 
   createdAt DateTime @default(now())
 
@@ -104,7 +102,10 @@ model Order {
   notes     String?
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
+  sendAt            DateTime
+  printerNotifiedAt DateTime?
 
   user   User   @relation(fields: [userId], references: [id])
   design Design @relation(fields: [designId], references: [id])
+  @@index([status,sendAt])
 }

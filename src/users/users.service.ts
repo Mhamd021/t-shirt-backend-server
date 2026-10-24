@@ -1,6 +1,7 @@
 import { Injectable, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
+import { Role } from '@prisma/client';
 
 @Injectable()
 export class UsersService {
@@ -30,7 +31,7 @@ export class UsersService {
   async updateRole(userId: number, role: string) {
   return this.prisma.user.update({
     where: { id: userId },
-    data: { role: role as any },
+    data: { role: role as Role },
     select: { id: true, email: true, name: true, role: true },
   });
 }

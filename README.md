@@ -403,6 +403,33 @@ Run end-to-end tests:
 npm run test:e2e
 ```
 
+Database-backed integration tests use `TEST_DATABASE_URL`, not `DATABASE_URL`.
+Create a separate local PostgreSQL database named `shirtfull_test`, then set
+`TEST_DATABASE_URL` to its loopback URL, for example:
+
+```env
+TEST_DATABASE_URL="postgresql://postgres:your-local-password@127.0.0.1:5432/shirtfull_test"
+```
+
+The integration-test setup refuses missing URLs, non-local hosts, and any
+database name other than `shirtfull_test`; it never falls back to
+`DATABASE_URL`. Run the refusal-guard tests without a database connection:
+
+```bash
+npm run test:db-guard
+```
+
+Run database-backed integration tests separately:
+
+```bash
+npm run test:integration
+```
+
+This command requires a locally running PostgreSQL instance and the dedicated
+test database. The suite verifies the current database before cleanup and uses
+a non-UTC PostgreSQL session timezone to exercise due-order scheduling. Do not
+point it at a development or production database.
+
 Generate coverage:
 
 ```bash

@@ -1,11 +1,12 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { AIProvider, DesignSuggestion, ColorPalette } from './ai-provider.interface';
-import { format } from 'path';
+
 
 @Injectable()
 export class OllamaProvider implements AIProvider {
   private baseUrl = 'http://localhost:11434';
   private model = 'tinyllama';  
+  private logger = new Logger(OllamaProvider.name);
 
   private async chat(prompt: string): Promise<string> {
     const response = await fetch(`${this.baseUrl}/api/generate`, {
@@ -26,7 +27,9 @@ export class OllamaProvider implements AIProvider {
   private extractJson(text: string): any {
     try {
     return JSON.parse(text);
-  }catch{}
+  }catch(error){
+    this.logger.error(error,'Failed to parse JSON from response:', text);
+  }
  const match = text.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
     if (!match) throw new Error('No JSON found in response');
     return JSON.parse(match[0]);

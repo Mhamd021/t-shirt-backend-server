@@ -10,6 +10,7 @@ import { RemoveBgService } from './removebg.service';
     MulterModule.register({ storage: memoryStorage() }),
   ],
   providers: [CloudinaryService,RemoveBgService],
-  controllers: [UploadController]
+  controllers: [UploadController],
+  exports: [CloudinaryService],
 })
 export class UploadModule {}

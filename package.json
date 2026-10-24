@@ -21,7 +21,9 @@
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
-    "test:e2e": "jest --config ./test/jest-e2e.json"
+    "test:e2e": "jest --config ./test/jest-e2e.json",
+    "test:db-guard": "jest --config ./test/jest-db-guard.json --runInBand",
+    "test:integration": "jest --config ./test/jest-integration.json --runInBand"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
@@ -47,7 +49,8 @@
     "prisma": "^7.7.0",
     "reflect-metadata": "^0.2.2",
     "resend": "^6.12.2",
-    "rxjs": "^7.8.1"
+    "rxjs": "^7.8.1",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",

@@ -6,6 +6,8 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { CloudinaryService } from './cloudinary.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RemoveBgService } from './removebg.service';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { User } from '.prisma/client/default.js';
 
 @Controller('upload')
 @UseGuards(JwtAuthGuard)
@@ -14,12 +16,12 @@ export class UploadController {
 
   @Post('image')
   @UseInterceptors(FileInterceptor('file'))
-  async uploadImage(@UploadedFile() file:Express.Multer.File) {
-    return this.cloudinaryService.uploadImage(file);
+  async uploadImage(@UploadedFile() file:Express.Multer.File,@CurrentUser() user: User,) {
+    return this.cloudinaryService.uploadImage(file, user.id);
   }
   @Post('image/remove-bg')
   @UseInterceptors(FileInterceptor('file'))
-  async uploadWithoutBg(@UploadedFile() file: Express.Multer.File) {
+  async uploadWithoutBg(@UploadedFile() file: Express.Multer.File,@CurrentUser() user: User,) {
     
     const cleanedBuffer = await this.removeBgService.removeBackground(file.buffer);
 
@@ -30,6 +32,6 @@ export class UploadController {
       originalname: file.originalname.replace(/\.[^.]+$/, '.png'),
     };
 
-    return this.cloudinaryService.uploadImage(cleanedFile);
+    return this.cloudinaryService.uploadImage(cleanedFile,user.id);
   }
 }

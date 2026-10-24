@@ -5,6 +5,7 @@ import {
 import { DesignService } from './design.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { Decal, User } from '@prisma/client';
 
 @Controller('designs')
 @UseGuards(JwtAuthGuard)
@@ -13,21 +14,21 @@ export class DesignController {
 
   @Post()
   create(
-    @CurrentUser() user: any,
-    @Body() body: { name?: string; shirtColor?: string; decals?: any[] },
+    @CurrentUser() user: User,
+    @Body() body: { name?: string; shirtColor?: string; decals?: Decal[] },
   ) {
     return this.designService.create(user.id, body);
   }
 
   @Get()
-  findAll(@CurrentUser() user: any) {
+  findAll(@CurrentUser() user: User) {
     return this.designService.findAllByUser(user.id);
   }
 
   @Get(':id')
   findOne(
     @Param('id', ParseIntPipe) id: number,
-    @CurrentUser() user: any,
+    @CurrentUser() user: User,
   ) {
     return this.designService.findOne(id, user.id);
   }
@@ -35,8 +36,8 @@ export class DesignController {
   @Put(':id')
   update(
     @Param('id', ParseIntPipe) id: number,
-    @CurrentUser() user: any,
-    @Body() body: { name?: string; shirtColor?: string; decals?: any[] },
+    @CurrentUser() user: User,
+    @Body() body: { name?: string; shirtColor?: string; decals?: Decal[] },
   ) {
     return this.designService.update(id, user.id, body);
   }
@@ -44,7 +45,7 @@ export class DesignController {
   @Delete(':id')
   remove(
     @Param('id', ParseIntPipe) id: number,
-    @CurrentUser() user: any,
+    @CurrentUser() user: User,
   ) {
     return this.designService.remove(id, user.id);
   }

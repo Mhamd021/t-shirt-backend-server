@@ -7,18 +7,18 @@ export class CloudinaryService {
   constructor(private config: ConfigService) {
     cloudinary.config({
       cloud_name: config.getOrThrow('CLOUDINARY_CLOUD_NAME'),
-      api_key:    config.getOrThrow('CLOUDINARY_API_KEY'),
+      api_key: config.getOrThrow('CLOUDINARY_API_KEY'),
       api_secret: config.getOrThrow('CLOUDINARY_API_SECRET'),
     });
   }
 
-  async uploadImage(file: Express.Multer.File): Promise<{
+  async uploadImage(file: Express.Multer.File , userId:Number): Promise<{
     url: string;
     publicId: string;
   }> {
     return new Promise((resolve, reject) => {
       cloudinary.uploader.upload_stream(
-        { folder: 'tshirt-decals' },
+        { folder: `tshirt-decals/${userId}` },
         (error, result) => {
           if (error || !result) return reject(error);
           resolve({
