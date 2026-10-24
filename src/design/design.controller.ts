@@ -5,7 +5,7 @@ import {
 import { DesignService } from './design.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import { Decal, User } from '@prisma/client';
+import type { Decal, User } from '@prisma/client';
 
 @Controller('designs')
 @UseGuards(JwtAuthGuard)

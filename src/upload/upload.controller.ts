@@ -7,7 +7,7 @@ import { CloudinaryService } from './cloudinary.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RemoveBgService } from './removebg.service';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import { User } from '.prisma/client/default.js';
+import type { User } from '@prisma/client';
 
 @Controller('upload')
 @UseGuards(JwtAuthGuard)

@@ -7,8 +7,8 @@ import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import { ShirtSize, OrderStatus, User } from '@prisma/client';
-import { CreateOrderDto, createOrderSchema, updateStatusSchema } from './order.schemas';
+import {  OrderStatus,type User } from '@prisma/client';
+import  {type CreateOrderDto, createOrderSchema, updateStatusSchema } from './order.schemas';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 
 @Controller('orders')
