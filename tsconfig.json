@@ -21,6 +21,8 @@
     "strictBindCallApply": false,
     "noFallthroughCasesInSwitch": false,
     "types": [
+      "node",
+      "jest",
       "multer"
     ]
   },

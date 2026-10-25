@@ -1,0 +1,103 @@
+// use prisma-8
+// Contract inferred from the live database schema. Edit as needed, then run `prisma contract emit`.
+
+namespace public {
+  model User {
+    id        Int                @id(map: "User_pkey") @default(autoincrement())
+    email     String
+    password  String
+    name      String
+    role      pg.enum(Role)      @default("CUSTOMER")
+    createdAt TimestampString(3) @default(now())
+    updatedAt TimestampString(3)
+    designs   Design[]
+    orders    Order[]
+
+    @@index([email], map: "User_email_key", unique: true)
+  }
+
+  model Design {
+    id         Int                @id(map: "Design_pkey") @default(autoincrement())
+    userId     Int
+    name       String             @default("My Design")
+    shirtColor String             @default("#ffffff")
+    isPublic   Boolean            @default(false)
+    createdAt  TimestampString(3) @default(now())
+    updatedAt  TimestampString(3)
+    decals     Decal[]
+    orders     Order[]
+    user       User               @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade, map: "Design_userId_fkey", index: false)
+  }
+
+  model Decal {
+    id           Int                @id(map: "Decal_pkey") @default(autoincrement())
+    designId     Int
+    _type        pg.enum(DecalType) @map("type")
+    side         String             @default("front")
+    positionX    Float              @default(0)
+    positionY    Float              @default(0)
+    positionZ    Float              @default(0)
+    orientationX Float              @default(0)
+    orientationY Float              @default(0)
+    orientationZ Float              @default(0)
+    scaleX       Float              @default(1)
+    scaleY       Float              @default(1)
+    scaleZ       Float              @default(1)
+    text         String?
+    font         String?
+    fontSize     Float?
+    textColor    String?
+    imageUrl     String?
+    publicId     String?
+    createdAt    TimestampString(3) @default(now())
+    design       Design             @relation(fields: [designId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "Decal_designId_fkey", index: false)
+  }
+
+  model Order {
+    id                Int                  @id(map: "Order_pkey") @default(autoincrement())
+    userId            Int
+    designId          Int
+    status            pg.enum(OrderStatus) @default("PENDING")
+    size              pg.enum(ShirtSize)
+    address           Jsonb
+    notes             String?
+    createdAt         TimestampString(3)   @default(now())
+    updatedAt         TimestampString(3)
+    printerNotifiedAt TimestampString(3)?
+    sendAt            TimestampString(3)
+    design            Design               @relation(fields: [designId], references: [id], onDelete: Restrict, onUpdate: Cascade, map: "Order_designId_fkey", index: false)
+    user              User                 @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade, map: "Order_userId_fkey", index: false)
+
+    @@index([status, sendAt], map: "Order_status_sendAt_idx")
+  }
+
+  native_enum DecalType {
+    TEXT = "TEXT"
+    IMAGE = "IMAGE"
+  }
+
+  native_enum OrderStatus {
+    PENDING = "PENDING"
+    CONFIRMED = "CONFIRMED"
+    PRINTING = "PRINTING"
+    SHIPPED = "SHIPPED"
+    DELIVERED = "DELIVERED"
+    CANCELLED = "CANCELLED"
+    SENT = "SENT"
+  }
+
+  native_enum Role {
+    CUSTOMER = "CUSTOMER"
+    PRINTER = "PRINTER"
+    ADMIN = "ADMIN"
+  }
+
+  native_enum ShirtSize {
+    XS = "XS"
+    S = "S"
+    M = "M"
+    L = "L"
+    XL = "XL"
+    XXL = "XXL"
+  }
+}
