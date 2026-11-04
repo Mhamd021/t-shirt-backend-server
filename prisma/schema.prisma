@@ -97,6 +97,9 @@ model Order {
   userId    Int
   designId  Int
   status    OrderStatus @default(PENDING)
+  customerName String
+  customerEmail String
+  idempotencyKey String
   size      ShirtSize
   address   Json
   notes     String?
@@ -104,8 +107,10 @@ model Order {
   updatedAt DateTime    @updatedAt
   sendAt            DateTime
   printerNotifiedAt DateTime?
+  notifyAttempts Int @default(0)
 
   user   User   @relation(fields: [userId], references: [id])
   design Design @relation(fields: [designId], references: [id])
   @@index([status,sendAt])
+  @@unique([userId, idempotencyKey])
 }

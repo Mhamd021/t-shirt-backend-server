@@ -29,7 +29,7 @@ The application is built with **NestJS**, **TypeScript**, **Prisma**, and **Post
 - **ORM:** Prisma
 - **Authentication:** Passport JWT
 - **Password Hashing:** bcrypt
-- **Validation:** class-validator and NestJS `ValidationPipe`
+- **Validation:** Zod order schemas and NestJS `ValidationPipe`
 - **File Uploads:** Multer
 - **Image Storage:** Cloudinary
 - **Background Removal:** remove.bg API
@@ -74,7 +74,7 @@ server/
 |   |-- users/                 # User lookup and role updates
 |   |-- app.module.ts          # Root application module
 |   `-- main.ts                # Application bootstrap
-|-- test/                      # End-to-end test configuration
+|-- test/                      # E2E, DB safety, and PostgreSQL integration tests
 |-- Dockerfile                 # Server container build
 |-- package.json               # Scripts and dependencies
 `-- README.md
@@ -106,6 +106,14 @@ Manages saved shirt designs for authenticated users. A design can include:
 - Text decals.
 - Image decals.
 - Decal side, position, orientation, and scale.
+
+Image decal `publicId` values must belong to the authenticated user's
+`tshirt-decals/<userId>/` Cloudinary folder. A design referenced by any order
+cannot be deleted, including when that order is cancelled. A non-cancelled
+order prevents design edits. When an update drops an image decal or a design is
+deleted, unreferenced Cloudinary images are deleted only after the database
+transaction commits. Image deletion is best-effort: failures are logged and do
+not roll back a successful database change.
 
 Main routes:
 
@@ -158,6 +166,13 @@ Printer/admin capabilities:
 
 - View all orders.
 - Update order status.
+- Administrators can list stuck notifications and retry one.
+- Customers can cancel pending orders.
+
+The normal order lifecycle is `PENDING -> SENT -> CONFIRMED -> PRINTING ->
+SHIPPED -> DELIVERED`. Customers and administrators can cancel pending orders;
+printers and administrators can cancel sent or confirmed orders. Other status
+changes are rejected with HTTP 409.
 
 Main routes:
 
@@ -166,6 +181,9 @@ Main routes:
 - `GET /orders/:id`
 - `GET /orders`
 - `PATCH /orders/:id/status`
+- `POST /orders/:id/cancel` (customer)
+- `GET /orders/stuck` (administrator)
+- `POST /orders/:id/resend` (administrator)
 
 ### Admin Module
 
@@ -184,6 +202,16 @@ Supported roles are defined in Prisma:
 ### Mail Module
 
 Sends new-order notifications to the configured printer email address using Resend.
+The email request uses the idempotency key `printer-order/<orderId>`. The order
+is marked as notified only after the mail service succeeds.
+
+The order notifier polls every five seconds and claims up to ten due orders at
+a time. PostgreSQL's `FOR UPDATE SKIP LOCKED` lets multiple pollers claim
+different orders without waiting on the same row. Failed notifications leave
+`printerNotifiedAt` null. Administrators can inspect these with
+`GET /orders/stuck` and retry an order with `POST /orders/:id/resend` after its
+`updatedAt` is at least five minutes old. A retry atomically claims the stale
+order; competing retries receive HTTP 409.
 
 ## Getting Started
 
@@ -255,6 +283,12 @@ Notes:
 - `OPENAI_API_KEY` is required for production AI generation.
 - In development, the AI service uses Ollama by default.
 - `DATABASE_URL` is required by the Prisma service.
+- `TEST_DATABASE_URL` is used only by the database-backed integration test
+  setup. It must point to a local PostgreSQL database named `shirtfull_test`.
+- `ORDER_POLLER_ENABLED=false` disables the background order poller. The poller
+  is enabled unless explicitly disabled.
+- `GRACE_PERIOD_MS` controls how long a new order stays pending before it is
+  eligible for printer notification; the default is ten minutes.
 - `JWT_SECRET` should be a strong secret in every non-local environment.
 
 ## Database and Prisma
@@ -271,7 +305,7 @@ Important enums:
 - `Role`: `CUSTOMER`, `PRINTER`, `ADMIN`
 - `DecalType`: `TEXT`, `IMAGE`
 - `ShirtSize`: `XS`, `S`, `M`, `L`, `XL`, `XXL`
-- `OrderStatus`: `PENDING`, `CONFIRMED`, `PRINTING`, `SHIPPED`, `DELIVERED`, `CANCELLED`
+- `OrderStatus`: `PENDING`, `SENT`, `CONFIRMED`, `PRINTING`, `SHIPPED`, `DELIVERED`, `CANCELLED`
 
 Useful Prisma commands:
 
@@ -331,7 +365,16 @@ GET   /orders/my
 GET   /orders/:id
 GET   /orders
 PATCH /orders/:id/status
+POST  /orders/:id/cancel
+GET   /orders/stuck
+POST  /orders/:id/resend
 ```
+
+`POST /orders` validates its request with a strict schema: a positive integer
+`designId`, a supported shirt size, an address with non-empty street, city,
+country, and zip fields, and optional notes up to 1000 characters. Unknown
+fields are rejected. `PATCH /orders/:id/status` accepts a Prisma
+`OrderStatus` value, subject to the actor's allowed transition.
 
 ### Admin
 
@@ -366,6 +409,8 @@ npm run test               # Run unit tests
 npm run test:watch         # Run unit tests in watch mode
 npm run test:cov           # Run unit tests with coverage
 npm run test:e2e           # Run end-to-end tests
+npm run test:db-guard      # Test database URL and cleanup refusal guards
+npm run test:integration   # PostgreSQL-backed race and integration tests
 npm run prisma:generate    # Generate Prisma client
 npm run prisma:migrate:dev # Create/apply development migrations
 npm run prisma:push        # Push schema changes to the database
@@ -413,7 +458,35 @@ TEST_DATABASE_URL="postgresql://postgres:your-local-password@127.0.0.1:5432/shir
 
 The integration-test setup refuses missing URLs, non-local hosts, and any
 database name other than `shirtfull_test`; it never falls back to
-`DATABASE_URL`. Run the refusal-guard tests without a database connection:
+`DATABASE_URL`. It also checks `current_database()` before running table
+cleanup.
+
+The repository has a dedicated test-only Compose file. Set `TEST_DB_PASSWORD`
+in the repository-root `.env`, then start only the test database from the
+repository root:
+
+```bash
+docker compose -f docker-compose.test.yml up -d test-db
+```
+
+The test database uses its own persistent volume and publishes PostgreSQL on
+`127.0.0.1:5433`; it does not start the application service. Configure
+`TEST_DATABASE_URL` in `server/.env` to that loopback host and port, targeting
+`shirtfull_test`. Apply migrations to the test database before integration
+tests. Prisma migrations use `DATABASE_URL`, so override it with the test URL
+for this command only. In PowerShell, from `server/`:
+
+```powershell
+$env:DATABASE_URL = "postgresql://<user>:<password>@127.0.0.1:5433/shirtfull_test"
+npx prisma7 migrate deploy
+Remove-Item Env:DATABASE_URL
+```
+
+Replace the placeholders with the local test database credentials. Do not run
+the migration command until you have verified the URL points to
+`shirtfull_test`.
+
+Run the URL and cleanup refusal tests without requiring PostgreSQL:
 
 ```bash
 npm run test:db-guard
@@ -425,10 +498,19 @@ Run database-backed integration tests separately:
 npm run test:integration
 ```
 
-This command requires a locally running PostgreSQL instance and the dedicated
-test database. The suite verifies the current database before cleanup and uses
-a non-UTC PostgreSQL session timezone to exercise due-order scheduling. Do not
-point it at a development or production database.
+The suite covers order/poller and design/order locking races, concurrent
+printer transitions, concurrent stuck-order retries, and poller
+claim/timezone behavior. It configures a non-UTC PostgreSQL session timezone
+and mocks the mail service; it does not send actual email. Never point
+`TEST_DATABASE_URL` at a development or production database.
+
+Run focused unit specs without a database:
+
+```bash
+npm test -- --runInBand src/order/order-transitions.spec.ts
+npm test -- --runInBand src/order/order-notifier-service.spec.ts
+npm test -- --runInBand src/design/design.service.spec.ts
+```
 
 Generate coverage:
 

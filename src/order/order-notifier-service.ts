@@ -3,6 +3,7 @@ import {
   Logger,
   OnModuleInit,
   OnModuleDestroy,
+  NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -55,8 +56,13 @@ export class OrderNotifierService implements OnModuleInit, OnModuleDestroy {
         user: { select: { name: true, email: true } },
       },
     });
-    if (!order) return;
-    await this.mail.sendNewOrderNotification(order);
+    if (!order) {
+      throw new NotFoundException('Order is not found');
+    }
+    await this.mail.sendNewOrderNotification(
+      order,
+      `printer-order/${order.id}`,
+    );
     await this.prisma.order.updateMany({
       where: { id, printerNotifiedAt: null },
       data: { printerNotifiedAt: new Date() },

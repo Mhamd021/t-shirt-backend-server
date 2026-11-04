@@ -7,6 +7,8 @@ const enumOf = <T extends string>(o: Record<string, T>) =>
 export const createOrderSchema = z.object({
   designId: z.number().int().positive(),
   size: enumOf(ShirtSize),
+  customerName: z.string().trim().min(1).max(100),
+  customerEmail: z.email().max(100),
   address: z.object({
     street: z.string().trim().min(1).max(200),
     city: z.string().trim().min(1).max(100),
@@ -19,3 +21,5 @@ export const createOrderSchema = z.object({
 export const updateStatusSchema = z.object({ status: enumOf(OrderStatus) }).strict();
 
 export type CreateOrderDto = z.infer<typeof createOrderSchema>;
+
+export const idempotencyKeySchema = z.uuid();

@@ -145,18 +145,113 @@ design`.
   `DesignService.create()`.
 - Result: the request is rejected before `design.create()` is called.
 
-## Not yet verified
+## `resendStuck()` concurrency mutation prediction (written before running)
 
-- `OrderService.findOne` printer visibility (`where: { id, AND: where }`):
-  the code is changed, but there are no tests yet. Needed: printer reading a
-  `PENDING` order gets 404; `SENT` succeeds; `CANCELLED` with
-  `printerNotifiedAt` null gets 404; `CANCELLED` with it set succeeds.
-- `"updatedAt" = now()` in the claim SQL: check the column type. If it is
-  `timestamp without time zone`, it should use `now() AT TIME ZONE 'UTC'` like
-  `sendAt`, and the timezone test should also assert `updatedAt`.
-- `(status, sendAt)` index: present in the schema, migration still to be
-  generated and reviewed.
-- Manual stage A (poller off) and stage B (poller on) checks, including a
-  wrong-Resend-key run.
-- Deleting a design that has orders (409 instead of 500), double-click
-  duplicate orders, admin double-resend.
+- Setup: create a `SENT` order with a null `printerNotifiedAt`, then use raw SQL
+  to set `updatedAt` ten minutes in the past. Prisma's `@updatedAt` behavior
+  makes supplying an old timestamp via Prisma Client unsafe for this setup.
+- Concurrent calls: invoke both `resendStuck(id)` promises before awaiting
+  either, and await them together with `Promise.allSettled`.
+- Mutation: remove the `"updatedAt" <= ...` predicate from the conditional
+  claim `UPDATE`.
+- Prediction: both updates can succeed because both calls still see a `SENT`
+  order with `printerNotifiedAt IS NULL`; the first claim does not set
+  `printerNotifiedAt` before commit. I expect two fulfilled calls, zero
+  rejections (therefore no 409), and two mail calls. The fulfilled/rejected
+  counts and exact mail-call count should all fail their one-winner expectations.
+- Strongest duplicate-notification evidence: the exact mail-call count. It
+  directly checks the externally visible side effect; the outcome counts also
+  assert the service's conflict contract.
+- Mutation result: confirmed. With the age predicate removed, the test observed
+  two fulfilled calls, zero rejected calls, and two mailer calls. The aggregate
+  assertion reported all mismatches together.
+- Follow-up reliability run: added a 200 ms delay to the mock mailer and ran
+  20 fresh stuck-order races under the same mutation. All 20 iterations went
+  red; every iteration had two fulfilled calls, zero rejections, and two mail
+  calls. The one-minute-too-recent test also went red deterministically because
+  the call resolved instead of rejecting.
+- The production age predicate was restored, and the focused tests passed
+  against the dedicated test database.
+- A second test seeds the same `SENT`/unnotified state with `updatedAt` set by
+  raw SQL to one minute ago; it rejects with HTTP 409 and sends no email.
+
+## Printer notification delivery and idempotency key
+
+- The Resend SDK v6.12.2 declarations type a returned error as an object with
+  `message`, nullable `statusCode`, and `name` (a Resend error-code string;
+  for example, `validation_error`), not as a JavaScript `Error` instance.
+- Added notifier tests using that returned response shape. A returned
+  `validation_error` becomes `Resend failed: Invalid recipient`; the notifier
+  does not call `updateMany`, and the simulated `printerNotifiedAt` stays null.
+- A success test checks the SDK receives
+  `{ idempotencyKey: 'printer-order/42' }`.
+
+- Mutation check: moved the notified timestamp update before the mail send.
+  The failure test went red because `printerNotifiedAt` was set. The production
+  order (send first, mark notified only after success) was restored.
+
+## Order creation idempotency
+- Mutation prediction, recorded before running the experiment: dropping the
+  unique index on `(userId, idempotencyKey)` should let both concurrent
+  same-user creates insert an order after serializing on the design lock.
+  Both calls should fulfill with different IDs and the database should contain
+  two orders, so the one-order/same-ID assertions should fail. Different-key,
+  different-user, payload-mismatch, and invalid-header cases should not depend
+  on this index mutation.
+- Mutation check: dropped `Order_userId_idempotencyKey_key` only on the
+  verified `shirtfull_test` database and ran the concurrent same-key test.
+  It went red with distinct IDs (`1` and `2`) and two matching database rows.
+  Truncated the test data, recreated the unique index, and verified its
+  definition before finishing.
+- Same-key requests now compare design, size, customer name/email, every
+  address field, and notes before returning the original order; changing any
+  of these fields is treated as a different order and returns HTTP 422.
+- The HTTP request path is verified with Supertest: POST `/orders` with
+  `Idempotency-Key` returns 201, and without it returns 400. Authentication
+  guards are replaced in this focused test; the real controller, header
+  extraction, validation, and database-backed service are exercised.
+- This test uses the real order service and a single request each; the header
+  contract is checked over HTTP, not as an authenticated end-to-end flow.
+
+## UTC timestamps under a non-UTC session
+
+- Mutation prediction, recorded before running the experiment: changing
+  `tick()`'s `"updatedAt"` assignment from `now() AT TIME ZONE 'UTC'` to bare
+  `now()` should make the claimed-order timestamp assertion fail by roughly
+  the Los Angeles UTC offset (about 7-8 hours), exceeding its 5-second bound.
+- Mutation result: confirmed. The test failed with a timestamp difference of
+  28,800,142 ms. The mail mock rejects in this test so Prisma's later
+  `@updatedAt` write cannot hide the raw claim timestamp.
+- Mutation prediction, recorded before running the experiment: making the
+  same bare-`now()` change in `resendStuck()` should likewise make its
+  post-resend timestamp assertion fail by roughly 7-8 hours.
+- Mutation result: confirmed. The test failed with a timestamp difference of
+  28,800,064 ms. The mail mock rejects so the test observes the raw
+  `resendStuck()` timestamp update before a successful notification's Prisma
+  `@updatedAt` write.
+
+## Printer visibility and notification error handling
+
+- Added database-backed printer visibility cases: `PENDING` and unnotified
+  `CANCELLED` orders return 404; `SENT` and notified `CANCELLED` orders are
+  readable.
+- Resend responses for concurrent idempotent requests and payload mismatch
+  both map to HTTP 409. Other Resend API errors map to HTTP 502. Notifier tests
+  check all three leave `printerNotifiedAt` null and do not call the update.
+- The stable `printer-order/<id>` key is checked in the failure path, which
+  also asserts the notification timestamp remains null.
+- SDK network behavior was checked with a rejected `fetch`: Resend resolves
+  with `{ data: null, error: { name: 'application_error', statusCode: null,
+  message: 'Unable to fetch data. The request could not be resolved.' },
+  headers: null }`. MailService handles this returned error as HTTP 502; the
+  notification remains unmarked.
+- The design-removal unit test already covers an order in `CANCELLED` status:
+  removal rejects with `ConflictException` status 409, retains the design and
+  decal, and does not call Cloudinary.
+- Mutation prediction, recorded before running: swallowing a generic Resend
+  error in MailService should make the notifier's other-error case go red
+  because it will mark the order notified after the send method resolves.
+- Mutation result: confirmed. Temporarily skipped the generic `error` branch;
+  the test went red because `notifyOrder()` resolved instead of rejecting.
+  Restored error propagation.
+

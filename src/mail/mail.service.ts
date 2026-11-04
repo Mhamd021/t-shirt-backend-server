@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadGatewayException, ConflictException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import { Resend } from 'resend';
@@ -28,19 +28,25 @@ const esc = (v: unknown): string =>
 @Injectable()
 export class MailService {
   private resend: Resend;
-
+    private readonly logger = new Logger(MailService.name);
+  
   constructor(private config: ConfigService) {
     this.resend = new Resend(config.getOrThrow('RESEND_API_KEY'));
+    
   }
 
-  async sendNewOrderNotification(order: OrderForMail): Promise<void> {
+  async sendNewOrderNotification(
+    order: OrderForMail,
+    idempotencyKey: string,
+  ): Promise<void> {
     const address = (order.address ?? {}) as Address;
 
-    const { error } = await this.resend.emails.send({
-      from: 'T-Shirt Studio <onboarding@resend.dev>',
-      to: this.config.getOrThrow('PRINTER_EMAIL'),
-      subject: `New Order #${order.id} — ${esc(order.size)} shirt`,
-      html: `
+    const { error } = await this.resend.emails.send(
+      {
+        from: 'T-Shirt Studio <onboarding@resend.dev>',
+        to: this.config.getOrThrow('PRINTER_EMAIL'),
+        subject: `New Order #${order.id} — ${esc(order.size)} shirt`,
+        html: `
         <div style="font-family: Arial; max-width: 600px;">
           <h2>New Order Received</h2>
           <table style="width:100%; border-collapse: collapse;">
@@ -51,7 +57,7 @@ export class MailService {
             <tr style="background:#f5f5f5;">
               <td style="padding:8px; font-weight:bold;">Customer</td>
               <td style="padding:8px;">
-                ${esc(order.user?.name)} (${esc(order.user?.email)})
+                ${esc(order.customerName)} (${esc(order.customerEmail)})
               </td>
             </tr>
             <tr>
@@ -84,12 +90,24 @@ export class MailService {
           </table>
         </div>
       `,
-    });
+      },
+      { idempotencyKey },
+    );
 
-    
-    if (error) {
-      throw new Error(`Resend failed: ${error.message}`);
+    if (error?.statusCode === 409 && error?.name === 'invalid_idempotent_request') {
+      this.logger.error(`Idempotent request failed for order ${order.id}: ${error.message}`);
+      throw new ConflictException(
+        'The request body does not match the original idempotent request',
+      );
     }
+    else if (error?.statusCode === 409 && error?.name === 'concurrent_idempotent_requests')
+      {
+      this.logger.warn(`Concurrent idempotent requests for order ${order.id}`);
+      throw new ConflictException('send is already in progress! please try after 5 minutes');
+    }
+    else if (error) {
+      this.logger.error(`Failed to send email for order ${order.id}: ${error.message}`);
+      throw new BadGatewayException('Failed to send email');
+    }
+      }
   }
-}
-

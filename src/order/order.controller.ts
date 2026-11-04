@@ -1,6 +1,8 @@
 import {
   Controller, Get, Post, Patch,
   Body, Param, ParseIntPipe, UseGuards,
+  Headers,
+  BadRequestException,
 } from '@nestjs/common';
 import { OrderService } from './order.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
@@ -8,7 +10,7 @@ import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import {  OrderStatus,type User } from '@prisma/client';
-import  {type CreateOrderDto, createOrderSchema, updateStatusSchema } from './order.schemas';
+import  {type CreateOrderDto, createOrderSchema, idempotencyKeySchema, updateStatusSchema } from './order.schemas';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 
 @Controller('orders')
@@ -21,8 +23,12 @@ export class OrderController {
     'ADMIN')
   create(
     @CurrentUser() user: User,
-    @Body(new ZodValidationPipe(createOrderSchema)) body: CreateOrderDto) {
-    return this.orderService.create(user.id, body);
+    @Body(new ZodValidationPipe(createOrderSchema)) body: CreateOrderDto,
+    @Headers('idempotency-key') idempotencyKey: string | undefined,
+  ) {
+      const parsed = idempotencyKeySchema.safeParse(idempotencyKey);
+      if (!parsed.success) throw new BadRequestException('Idempotency-Key header must be a UUID');
+    return this.orderService.create(user.id, body, parsed.data);
   }
 
   @Get('stuck')
