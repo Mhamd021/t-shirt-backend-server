@@ -286,10 +286,25 @@ Notes:
 - `TEST_DATABASE_URL` is used only by the database-backed integration test
   setup. It must point to a local PostgreSQL database named `shirtfull_test`.
 - `ORDER_POLLER_ENABLED=false` disables the background order poller. The poller
-  is enabled unless explicitly disabled.
+  is disabled only when the value is exactly the string `false`; it is enabled
+  for unset values and all other strings.
+- `INTERNAL_TICK_SECRET` must be at least 32 characters and is required by
+  `POST /internal/tick`.
+- `TICK_BUDGET_MS` sets the poll-cycle budget. Invalid or non-positive values
+  use 30 seconds; values above 45 seconds are capped at 45 seconds. Prisma
+  Compute requires an HTTP service to start responding within 60 seconds, so
+  the cap leaves 15 seconds of headroom. See [Compute runtime limitations](https://www.prisma.io/docs/compute/limitations).
 - `GRACE_PERIOD_MS` controls how long a new order stays pending before it is
   eligible for printer notification; the default is ten minutes.
 - `JWT_SECRET` should be a strong secret in every non-local environment.
+
+### Prisma Compute scheduler
+
+When an external scheduler calls `POST /internal/tick`, set
+`ORDER_POLLER_ENABLED=false` exactly to prevent each application instance from
+also starting its own poller. Configure the external request with the
+`x-internal-secret` header; store the same 32+ character secret as
+`INTERNAL_TICK_SECRET`. The endpoint has no global API prefix.
 
 ## Database and Prisma
 

@@ -2,7 +2,7 @@
 
 Mutation checks were run against the local `shirtfull_test` database. Each
 production change below was temporary and was restored immediately after its
-focused test run. After all restores, the full suite passed (66 integration
+focused test run. After all restores, the full suite passed (105 integration
 tests). Results are from local runs by the author.
 
 ## Summary table
@@ -255,3 +255,115 @@ design`.
   the test went red because `notifyOrder()` resolved instead of rejecting.
   Restored error propagation.
 
+## Notification attempts, stuck sweeps, and cycle budget
+
+Predictions recorded before running the mutations:
+
+1. If `tick()` stops setting `notifyAttempts = 1` when it claims an order, the
+   new claim-attempt assertion will fail with the default value `0`.
+2. If `resendStuck()` stops incrementing `notifyAttempts`, an order seeded at
+   `2` will remain at `2` instead of reaching `3`.
+3. If `sweepStuck()` loses its age predicate, a one-minute-old SENT,
+   unnotified order will be swept and notified instead of remaining untouched.
+4. If `sweepStuck()` loses its attempt-cap predicate, a SENT, unnotified order
+   already at `MAX_NOTIFY_ATTEMPTS` will be claimed and emailed.
+5. If concurrent sweeps stop safely claiming with the update/row-lock query,
+   20 delayed-mail races should yield duplicate notifications for at least one
+   order; the invariant is exactly one mail per order.
+6. With an always-failing mailer, each successful claim should increment
+   attempts. After the cap, another sweep should claim zero rows; after moving
+   its timestamp back past the lease, the order should still appear in
+   `findStuck()`.
+7. With 25 due orders and batch size 10, a drained cycle should claim all 25.
+   If `runCycle()` is forced to one iteration, it will claim only the first
+   10 and report the wrong stopped state.
+8. With 30 due orders, 100 ms mail delays, and a 500 ms budget, the cycle
+   should stop by budget after at least one full batch and leave due orders
+   PENDING. Removing the budget check should drain all orders and report
+   `drained`, making the budget assertion fail.
+9. With 25 due orders and one stuck order, a 500 ms cycle budget, and a
+   delayed mailer, the stuck order should be swept after the first tick batch.
+   Moving sweep work until after the tick loop should leave the stuck order
+   unnotified when the budget is exhausted.
+
+Mutation results:
+
+- Removed the claim's `notifyAttempts = 1`: the claim test failed with actual
+  value `0` (expected `1`).
+- Removed the `resendStuck()` increment: the resend test failed with actual
+  value `2` (expected `3`).
+- Removed the sweep age predicate: the one-minute order was swept (`1`
+  returned instead of `0`).
+- Removed the sweep attempt-cap predicate: the capped order was swept (`1`
+  returned instead of `0`).
+- Concurrent sweep race prediction: removing the age predicate allows a
+  second sweep to claim the same unnotified SENT order while the first email
+  is in flight, producing two emails.
+- Concurrent sweep mutation result: removed the age predicate and ran the
+  20-iteration delayed-mail test. It went red: iterations 1 and 2 each sent
+  two emails instead of one. Restored the age predicate.
+- With the predicate restored, the 20 delayed-mail iterations passed with
+  exactly one email per order.
+- Always-failing sweep: all attempts incremented through the cap; the next
+  sweep returned zero and the aged-out order remained in `findStuck()`.
+- Limited `runCycle()` to one iteration: the drain test failed with 10
+  claimed instead of 25.
+- Removed the run-cycle budget check: the budget test failed because it
+  returned `drained` instead of `budget`.
+- Moved the sweep loop after the tick loop: the starvation test failed with
+  zero swept orders. Restored interleaved tick/sweep processing afterward.
+- After restoring all mutations, the complete integration suite passed
+  (96 tests) and the server build succeeded.
+
+## Internal poller endpoint and guard
+
+Predictions recorded before running the mutations:
+
+1. Removing `@UseGuards(InternalSecretGuard)` should make the unauthenticated
+   requests return success and call `runCycle`; the unauthorized request tests
+   should fail.
+2. Comparing the short raw header directly to the fixed-size digest with
+   `timingSafeEqual` should throw for different buffer lengths, producing an
+   HTTP 500 instead of the expected 401.
+3. Removing the `ORDER_POLLER_ENABLED=false` check should schedule a timer;
+   the fake-timer test should fail because a timer exists.
+4. With `TICK_BUDGET_MS='abc'`, the controller should use 30,000 ms; with
+   `'999999'`, it should clamp to 45,000 ms. Replacing the validation/clamp
+   with `Number(...)` directly should make each assertion fail (`NaN` and
+   `999999`, respectively).
+5. Booting the real `AppModule` should expose `POST /internal/tick` without a
+   global prefix. Missing secret should return 401; the correct secret should
+   return 200 with the cycle response. Removing `InternalModule` from
+   `AppModule.imports` should make the request return 404.
+6. With `ORDER_POLLER_ENABLED` unset, advancing fake timers by `POLL_MS`
+   should call `runCycle` once with the configured poll budget. Changing
+   `schedule()` back to `tick()` should leave `runCycle` uncalled and make the
+   test fail.
+
+Prisma Compute's runtime limitations document says an HTTP service must begin
+responding within 60 seconds or Compute returns 504 and cancels the request.
+The requested 45,000 ms maximum leaves 15 seconds of headroom:
+https://www.prisma.io/docs/compute/limitations
+
+Mutation results:
+
+- Removed `@UseGuards(InternalSecretGuard)`: the missing-secret HTTP test went
+  red because the request returned 200 instead of 401. The original guard was
+  restored.
+- Compared the raw short header to the stored digest: the short-header test
+  went red because `timingSafeEqual` threw for different buffer lengths and
+  the endpoint returned 500 instead of 401. Restored SHA-256 digest
+  comparison before the constant-time equality check.
+- Removed the `ORDER_POLLER_ENABLED=false` check: the fake-timer test went red
+  because one timer was scheduled instead of zero. Restored the check.
+- Direct `Number(TICK_BUDGET_MS)` conversion: the invalid-budget case received
+  `NaN` instead of 30,000, and the excessive-budget case received 999,999
+  instead of the 45,000 cap. Restored budget normalization.
+- Removed `InternalModule` from `AppModule.imports`: the real-app smoke test
+  received 404 instead of 401 for a request without the secret. Restored the
+  module import.
+- Changed the scheduled callback back to `tick()`: the enabled-poller fake
+  timer test failed because `runCycle` was not called. Restored `runCycle`.
+- After restoring all mutations, the complete integration suite passed
+  (105 tests across 2 suites), the notifier unit suite passed 8 tests, and the
+  server build succeeded.

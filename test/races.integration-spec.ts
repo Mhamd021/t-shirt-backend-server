@@ -15,6 +15,7 @@ import { OrderNotifierService } from '../src/order/order-notifier-service';
 import { MailService } from '../src/mail/mail.service';
 import { OrderController } from '../src/order/order.controller';
 import { CreateOrderDto } from '../src/order/order.schemas';
+import { MAX_NOTIFY_ATTEMPTS } from '../src/order/order.constants';
 import { JwtAuthGuard } from '../src/common/guards/jwt-auth.guard';
 import { RolesGuard } from '../src/common/guards/roles.guard';
 import {
@@ -711,6 +712,248 @@ describe('backend race tests', () => {
     ).toBeLessThan(5_000);
     expect(mailMock.sendNewOrderNotification).toHaveBeenCalledTimes(1);
   });
+
+  it('sets notifyAttempts to one when tick claims an order', async () => {
+    const customer = await seedUser();
+    const design = await seedDesign(customer.id);
+    const order = await seedOrder(
+      customer.id,
+      design.id,
+      OrderStatus.PENDING,
+      new Date(Date.now() - 60_000),
+    );
+
+    await expect(notifier.tick()).resolves.toBe(1);
+
+    const claimed = await prisma.order.findUniqueOrThrow({
+      where: { id: order.id },
+    });
+    expect(claimed.status).toBe(OrderStatus.SENT);
+    expect(claimed.notifyAttempts).toBe(1);
+    expect(claimed.printerNotifiedAt).not.toBeNull();
+  });
+
+  it('increments notifyAttempts when manually resending a stuck order', async () => {
+    const customer = await seedUser();
+    const design = await seedDesign(customer.id);
+    const order = await seedStuckOrder(customer.id, design.id, 10);
+    await prisma.$executeRaw`
+      UPDATE "Order" SET "notifyAttempts" = 2 WHERE id = ${order.id}
+    `;
+
+    await orderService.resendStuck(order.id);
+
+    const resent = await prisma.order.findUniqueOrThrow({
+      where: { id: order.id },
+    });
+    expect(resent.notifyAttempts).toBe(3);
+    expect(resent.printerNotifiedAt).not.toBeNull();
+  });
+
+  it('sweeps and notifies a SENT unnotified order older than the lease', async () => {
+    const customer = await seedUser();
+    const design = await seedDesign(customer.id);
+    const order = await seedStuckOrder(customer.id, design.id, 10);
+
+    await expect(notifier.sweepStuck()).resolves.toBe(1);
+
+    const swept = await prisma.order.findUniqueOrThrow({
+      where: { id: order.id },
+    });
+    expect(swept.notifyAttempts).toBe(1);
+    expect(swept.printerNotifiedAt).not.toBeNull();
+    expect(mailMock.sendNewOrderNotification).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not sweep a SENT order that is younger than the lease', async () => {
+    const customer = await seedUser();
+    const design = await seedDesign(customer.id);
+    const order = await seedStuckOrder(customer.id, design.id, 1);
+
+    await expect(notifier.sweepStuck()).resolves.toBe(0);
+
+    const unchanged = await prisma.order.findUniqueOrThrow({
+      where: { id: order.id },
+    });
+    expect(unchanged.notifyAttempts).toBe(0);
+    expect(unchanged.printerNotifiedAt).toBeNull();
+    expect(mailMock.sendNewOrderNotification).not.toHaveBeenCalled();
+  });
+
+  it('skips PENDING, notified, and attempt-capped orders during a sweep', async () => {
+    const customer = await seedUser();
+    const design = await seedDesign(customer.id);
+    const pending = await seedOrder(
+      customer.id,
+      design.id,
+      OrderStatus.PENDING,
+      new Date(Date.now() - 60_000),
+    );
+    const notified = await seedStuckOrder(customer.id, design.id, 10);
+    const capped = await seedStuckOrder(customer.id, design.id, 10);
+    await prisma.order.update({
+      where: { id: notified.id },
+      data: { printerNotifiedAt: new Date() },
+    });
+    await prisma.$executeRaw`
+      UPDATE "Order"
+      SET "notifyAttempts" = ${MAX_NOTIFY_ATTEMPTS}
+      WHERE id = ${capped.id}
+    `;
+
+    await expect(notifier.sweepStuck()).resolves.toBe(0);
+
+    const rows = await prisma.order.findMany({
+      where: { id: { in: [pending.id, notified.id, capped.id] } },
+      orderBy: { id: 'asc' },
+    });
+    expect(rows.map((row) => row.notifyAttempts)).toEqual([
+      0,
+      0,
+      MAX_NOTIFY_ATTEMPTS,
+    ]);
+    expect(mailMock.sendNewOrderNotification).not.toHaveBeenCalled();
+  });
+
+  it('sends one email per order across concurrent sweep races', async () => {
+    const customer = await seedUser();
+    const design = await seedDesign(customer.id);
+    mailMock.sendNewOrderNotification.mockImplementation(
+      () => new Promise((resolve) => setTimeout(resolve, 200)),
+    );
+    const failures: Array<{ iteration: number; emails: number }> = [];
+
+    for (let iteration = 1; iteration <= 20; iteration += 1) {
+      const order = await seedStuckOrder(customer.id, design.id, 10);
+      const callsBefore = mailMock.sendNewOrderNotification.mock.calls.length;
+
+      await Promise.all([notifier.sweepStuck(), notifier.sweepStuck()]);
+
+      const current = await prisma.order.findUniqueOrThrow({
+        where: { id: order.id },
+      });
+      const emails =
+        mailMock.sendNewOrderNotification.mock.calls.length - callsBefore;
+      if (emails !== 1 || current.printerNotifiedAt === null) {
+        failures.push({ iteration, emails });
+      }
+    }
+
+    expect(failures).toEqual([]);
+  }, 15_000);
+
+  it('counts failed sweep attempts until the cap and leaves exhausted orders stuck', async () => {
+    const customer = await seedUser();
+    const design = await seedDesign(customer.id);
+    const order = await seedStuckOrder(customer.id, design.id, 10);
+    mailMock.sendNewOrderNotification.mockRejectedValue(
+      new Error('Simulated mail failure'),
+    );
+
+    for (let attempt = 1; attempt <= MAX_NOTIFY_ATTEMPTS; attempt += 1) {
+      await expect(notifier.sweepStuck()).resolves.toBe(1);
+      const current = await prisma.order.findUniqueOrThrow({
+        where: { id: order.id },
+      });
+      expect(current.notifyAttempts).toBe(attempt);
+      expect(current.printerNotifiedAt).toBeNull();
+      await prisma.$executeRaw`
+        UPDATE "Order"
+        SET "updatedAt" = (now() AT TIME ZONE 'UTC') - (10 * INTERVAL '1 minute')
+        WHERE id = ${order.id}
+      `;
+    }
+
+    await expect(notifier.sweepStuck()).resolves.toBe(0);
+    await prisma.$executeRaw`
+      UPDATE "Order"
+      SET "updatedAt" = (now() AT TIME ZONE 'UTC') - (10 * INTERVAL '1 minute')
+      WHERE id = ${order.id}
+    `;
+    await expect(orderService.findStuck()).resolves.toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: order.id })]),
+    );
+    expect(mailMock.sendNewOrderNotification).toHaveBeenCalledTimes(
+      MAX_NOTIFY_ATTEMPTS,
+    );
+  }, 15_000);
+
+  it('drains 25 due orders over multiple poll batches', async () => {
+    const customer = await seedUser();
+    const design = await seedDesign(customer.id);
+    await Promise.all(
+      Array.from({ length: 25 }, () =>
+        seedOrder(
+          customer.id,
+          design.id,
+          OrderStatus.PENDING,
+          new Date(Date.now() - 60_000),
+        ),
+      ),
+    );
+
+    await expect(notifier.runCycle(10_000)).resolves.toEqual({
+      claimed: 25,
+      swept: 0,
+      stoppedBy: 'drained',
+    });
+    expect(mailMock.sendNewOrderNotification).toHaveBeenCalledTimes(25);
+  }, 15_000);
+
+  it('stops a poll cycle at its budget and leaves due orders pending', async () => {
+    const customer = await seedUser();
+    const design = await seedDesign(customer.id);
+    await Promise.all(
+      Array.from({ length: 30 }, () =>
+        seedOrder(
+          customer.id,
+          design.id,
+          OrderStatus.PENDING,
+          new Date(Date.now() - 60_000),
+        ),
+      ),
+    );
+    mailMock.sendNewOrderNotification.mockImplementation(
+      () => new Promise((resolve) => setTimeout(resolve, 100)),
+    );
+
+    const result = await notifier.runCycle(500);
+    const pending = await prisma.order.count({
+      where: { status: OrderStatus.PENDING },
+    });
+    expect(result.stoppedBy).toBe('budget');
+    expect(result.claimed).toBeGreaterThan(0);
+    expect(pending).toBeGreaterThan(0);
+    expect(pending).toBeLessThan(30);
+  }, 15_000);
+
+  it('sweeps a stuck order during the first iteration before budget expires', async () => {
+    const customer = await seedUser();
+    const design = await seedDesign(customer.id);
+    await Promise.all(
+      Array.from({ length: 25 }, () =>
+        seedOrder(
+          customer.id,
+          design.id,
+          OrderStatus.PENDING,
+          new Date(Date.now() - 60_000),
+        ),
+      ),
+    );
+    const stuck = await seedStuckOrder(customer.id, design.id, 10);
+    mailMock.sendNewOrderNotification.mockImplementation(
+      () => new Promise((resolve) => setTimeout(resolve, 100)),
+    );
+
+    const result = await notifier.runCycle(500);
+    const sweptOrder = await prisma.order.findUniqueOrThrow({
+      where: { id: stuck.id },
+    });
+
+    expect(result.stoppedBy).toBe('budget');
+    expect(result.swept).toBeGreaterThanOrEqual(1);
+    expect(sweptOrder.printerNotifiedAt).not.toBeNull();
+  }, 15_000);
 
   it.each(Array.from({ length: RACE_ITERATIONS }, (_, index) => index + 1))(
     'serializes a design update against order creation (iteration %i)',

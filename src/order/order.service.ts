@@ -44,7 +44,7 @@ export class OrderService {
 
     const rows = await this.prisma.$queryRaw<{ id: number }[]>(Prisma.sql`
         UPDATE "Order"
-        SET "updatedAt" = (now() AT TIME ZONE 'UTC') 
+        SET "updatedAt" = (now() AT TIME ZONE 'UTC'), "notifyAttempts" = "notifyAttempts" + 1
         WHERE id = ${id}
           AND status = 'SENT' 
           AND "printerNotifiedAt" IS NULL 

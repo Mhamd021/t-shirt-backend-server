@@ -8,9 +8,20 @@ import {
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
+import {
+  BATCH,
+  DEFAULT_POLL_BUDGET_MS,
+  getTickBudgetMs,
+  LEASE_MINUTES,
+  MAX_NOTIFY_ATTEMPTS,
+} from './order.constants';
 
-const POLL_MS = 5_000;
-const BATCH = 10;
+export const POLL_MS = 5_000;
+export const POLL_BUDGET_MS = getTickBudgetMs(
+  process.env.TICK_BUDGET_MS,
+  DEFAULT_POLL_BUDGET_MS,
+);
+
 
 @Injectable()
 export class OrderNotifierService implements OnModuleInit, OnModuleDestroy {
@@ -40,7 +51,7 @@ export class OrderNotifierService implements OnModuleInit, OnModuleDestroy {
   private schedule() {
     this.timer = setTimeout(async () => {
       try {
-        await this.tick();
+        await this.runCycle(POLL_BUDGET_MS);
       } catch (err) {
         this.logger.error('Poller tick failed', err as Error);
       }
@@ -53,7 +64,7 @@ export class OrderNotifierService implements OnModuleInit, OnModuleDestroy {
       where: { id },
       include: {
         design: { include: { decals: true } },
-        user: { select: { name: true, email: true } },
+        user: { select: { email: true, name: true } },
       },
     });
     if (!order) {
@@ -72,7 +83,7 @@ export class OrderNotifierService implements OnModuleInit, OnModuleDestroy {
   async tick() {
     const claimed = await this.prisma.$queryRaw<{ id: number }[]>(Prisma.sql`
       UPDATE "Order"
-      SET status = 'SENT', "updatedAt" = (now() AT TIME ZONE 'UTC')
+      SET status = 'SENT', "updatedAt" = (now() AT TIME ZONE 'UTC'),"notifyAttempts" = 1
       WHERE id IN (
         SELECT id FROM "Order"
         WHERE status = 'PENDING' AND "sendAt" <= (now() AT TIME ZONE 'UTC')
@@ -90,5 +101,54 @@ export class OrderNotifierService implements OnModuleInit, OnModuleDestroy {
         this.logger.error(`Notify failed for order ${id}`, err as Error);
       }
     }
+    return claimed.length;
   }
+  async sweepStuck(): Promise<number> {
+  const rows = await this.prisma.$queryRaw<{ id: number }[]>(Prisma.sql`
+    UPDATE "Order"
+    SET "updatedAt" = (now() AT TIME ZONE 'UTC'),
+        "notifyAttempts" = "notifyAttempts" + 1
+    WHERE id IN (
+      SELECT id FROM "Order"
+      WHERE status = 'SENT'
+        AND "printerNotifiedAt" IS NULL
+        AND "notifyAttempts" < ${MAX_NOTIFY_ATTEMPTS}
+        AND "updatedAt" <= (now() AT TIME ZONE 'UTC') - (${LEASE_MINUTES}::int * INTERVAL '1 minute')
+      ORDER BY "updatedAt"
+      LIMIT ${BATCH}
+      FOR UPDATE SKIP LOCKED
+    )
+    RETURNING id
+  `);
+
+  for (const { id } of rows) {
+    try {
+      await this.notifyOrder(id);
+    } catch (err) {
+      this.logger.error(`Sweep notify failed for order ${id}`, err as Error);
+    }
+  }
+  return rows.length;
+}
+
+async runCycle(budgetMs: number) {
+  const started = performance.now();
+  let claimed = 0;
+  let swept = 0;
+  let lastClaimed = BATCH;
+  let lastSwept = BATCH;
+  let stoppedBy: 'drained' | 'budget' = 'drained';
+
+  while (lastClaimed === BATCH || lastSwept === BATCH) {
+    if (performance.now() - started >= budgetMs) {
+      stoppedBy = 'budget';
+      break;
+    }
+    lastClaimed = await this.tick();
+    lastSwept = await this.sweepStuck();
+    claimed += lastClaimed;
+    swept += lastSwept;
+  }
+  return { claimed, swept, stoppedBy };
+}
 }

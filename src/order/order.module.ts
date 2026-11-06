@@ -8,5 +8,6 @@ import { OrderNotifierService } from './order-notifier-service';
   imports: [MailModule],
   controllers: [OrderController],
   providers: [OrderService,OrderNotifierService],
+  exports: [OrderNotifierService],
 })
 export class OrderModule {}

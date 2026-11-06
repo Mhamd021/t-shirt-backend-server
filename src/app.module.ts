@@ -11,11 +11,12 @@ import { OrderModule } from './order/order.module';
 import { MailModule } from './mail/mail.module';
 import { AdminModule } from './admin/admin.module';
 import { AiModule } from './ai/ai.module';
+import { InternalModule } from './internal/internal.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
-     PrismaModule, AuthModule, UsersModule, DesignModule, UploadModule, OrderModule, MailModule, AdminModule,AiModule ],
+     PrismaModule, AuthModule, UsersModule, DesignModule, UploadModule, OrderModule, MailModule, AdminModule,AiModule,InternalModule ],
   controllers: [AppController],
   providers: [AppService],
 })

@@ -3,7 +3,11 @@ import { Prisma } from '@prisma/client';
 import type { ErrorResponse } from 'resend';
 import { MailService } from '../mail/mail.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { OrderNotifierService } from './order-notifier-service';
+import {
+  OrderNotifierService,
+  POLL_BUDGET_MS,
+  POLL_MS,
+} from './order-notifier-service';
 
 const mockResendSend = jest.fn();
 
@@ -82,6 +86,57 @@ function makeNotifier() {
 describe('OrderNotifierService', () => {
   beforeEach(() => {
     mockResendSend.mockReset();
+  });
+
+  it('does not schedule the poller when ORDER_POLLER_ENABLED is false', () => {
+    const previousValue = process.env.ORDER_POLLER_ENABLED;
+    jest.useFakeTimers();
+    process.env.ORDER_POLLER_ENABLED = 'false';
+    const { notifier } = makeNotifier();
+    const runCycle = jest.spyOn(notifier, 'runCycle');
+
+    try {
+      notifier.onModuleInit();
+
+      expect(jest.getTimerCount()).toBe(0);
+      expect(runCycle).not.toHaveBeenCalled();
+    } finally {
+      notifier.onModuleDestroy();
+      jest.useRealTimers();
+      if (previousValue === undefined) {
+        delete process.env.ORDER_POLLER_ENABLED;
+      } else {
+        process.env.ORDER_POLLER_ENABLED = previousValue;
+      }
+    }
+  });
+
+  it('runs the configured poll cycle when the poller is enabled', async () => {
+    const previousEnabled = process.env.ORDER_POLLER_ENABLED;
+    jest.useFakeTimers();
+    delete process.env.ORDER_POLLER_ENABLED;
+    const { notifier } = makeNotifier();
+    const runCycle = jest
+      .spyOn(notifier, 'runCycle')
+      .mockResolvedValue({ claimed: 0, swept: 0, stoppedBy: 'drained' });
+
+    try {
+      notifier.onModuleInit();
+      expect(jest.getTimerCount()).toBe(1);
+
+      await jest.advanceTimersByTimeAsync(POLL_MS);
+
+      expect(runCycle).toHaveBeenCalledTimes(1);
+      expect(runCycle).toHaveBeenCalledWith(POLL_BUDGET_MS);
+    } finally {
+      notifier.onModuleDestroy();
+      jest.useRealTimers();
+      if (previousEnabled === undefined) {
+        delete process.env.ORDER_POLLER_ENABLED;
+      } else {
+        process.env.ORDER_POLLER_ENABLED = previousEnabled;
+      }
+    }
   });
 
   it('does not mark an order notified when Resend returns an error', async () => {
