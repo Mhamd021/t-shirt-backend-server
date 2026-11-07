@@ -58,6 +58,9 @@ namespace public {
     userId            Int
     designId          Int
     status            pg.enum(OrderStatus) @default("PENDING")
+    customerName      String
+    customerEmail     String
+    idempotencyKey    String
     size              pg.enum(ShirtSize)
     address           Jsonb
     notes             String?
@@ -65,10 +68,12 @@ namespace public {
     updatedAt         TimestampString(3)
     printerNotifiedAt TimestampString(3)?
     sendAt            TimestampString(3)
+    notifyAttempts    Int                  @default(0)
     design            Design               @relation(fields: [designId], references: [id], onDelete: Restrict, onUpdate: Cascade, map: "Order_designId_fkey", index: false)
     user              User                 @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade, map: "Order_userId_fkey", index: false)
 
     @@index([status, sendAt], map: "Order_status_sendAt_idx")
+    @@unique([userId, idempotencyKey], map: "Order_userId_idempotencyKey_key")
   }
 
   native_enum DecalType {

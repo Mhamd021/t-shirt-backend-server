@@ -23,7 +23,7 @@ import type {
 } from '@prisma/orm-postgres/contract/types';
 
 export type StorageHash =
-  StorageHashBase<'bd83954e90f9de2326eb07e90ea47b7767a27ac30414ca991a0a250cdb2ebf3b'>;
+  StorageHashBase<'eedfe38ca425b7214e5f6dd247a7cd63d0ca0f9145a0a587c848811aed42072f'>;
 export type ExecutionHash = ExecutionHashBase<string>;
 export type ProfileHash =
   ProfileHashBase<'3916f444a8a17ad749191acf9e08dad97d1a327b88c2f1d45d12f240296aa8b2'>;
@@ -359,9 +359,13 @@ export namespace Models {
   export type public_Order = {
     address: FieldOutputTypes['public']['Order']['address'];
     createdAt: FieldOutputTypes['public']['Order']['createdAt'];
+    customerEmail: FieldOutputTypes['public']['Order']['customerEmail'];
+    customerName: FieldOutputTypes['public']['Order']['customerName'];
     designId: FieldOutputTypes['public']['Order']['designId'];
     id: FieldOutputTypes['public']['Order']['id'];
+    idempotencyKey: FieldOutputTypes['public']['Order']['idempotencyKey'];
     notes: FieldOutputTypes['public']['Order']['notes'];
+    notifyAttempts: FieldOutputTypes['public']['Order']['notifyAttempts'];
     printerNotifiedAt: FieldOutputTypes['public']['Order']['printerNotifiedAt'];
     sendAt: FieldOutputTypes['public']['Order']['sendAt'];
     size: FieldOutputTypes['public']['Order']['size'];
@@ -701,6 +705,18 @@ type ContractBase = Omit<
                   readonly typeParams: { readonly precision: 3 };
                   readonly many: false;
                 };
+                readonly customerEmail: {
+                  readonly dataType: 'pg/text';
+                  readonly codecId: 'pg/text@1';
+                  readonly nullable: false;
+                  readonly many: false;
+                };
+                readonly customerName: {
+                  readonly dataType: 'pg/text';
+                  readonly codecId: 'pg/text@1';
+                  readonly nullable: false;
+                  readonly many: false;
+                };
                 readonly designId: {
                   readonly dataType: 'pg/int4';
                   readonly codecId: 'pg/int4@1';
@@ -717,10 +733,26 @@ type ContractBase = Omit<
                   };
                   readonly many: false;
                 };
+                readonly idempotencyKey: {
+                  readonly dataType: 'pg/text';
+                  readonly codecId: 'pg/text@1';
+                  readonly nullable: false;
+                  readonly many: false;
+                };
                 readonly notes: {
                   readonly dataType: 'pg/text';
                   readonly codecId: 'pg/text@1';
                   readonly nullable: true;
+                  readonly many: false;
+                };
+                readonly notifyAttempts: {
+                  readonly dataType: 'pg/int4';
+                  readonly codecId: 'pg/int4@1';
+                  readonly nullable: false;
+                  readonly default: {
+                    readonly kind: 'literal';
+                    readonly value: DefaultLiteralValue<'pg/int4@1', 0>;
+                  };
                   readonly many: false;
                 };
                 readonly printerNotifiedAt: {
@@ -770,7 +802,12 @@ type ContractBase = Omit<
                 };
               };
               primaryKey: { readonly columns: readonly ['id']; readonly name: 'Order_pkey' };
-              uniques: readonly [];
+              uniques: readonly [
+                {
+                  readonly columns: readonly ['userId', 'idempotencyKey'];
+                  readonly name: 'Order_userId_idempotencyKey_key';
+                },
+              ];
               indexes: readonly [
                 {
                   readonly name: 'Order_status_sendAt_idx';
@@ -1153,6 +1190,14 @@ type ContractBase = Omit<
                   readonly typeParams: { readonly precision: 3 };
                 };
               };
+              readonly customerEmail: {
+                readonly nullable: false;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/text@1' };
+              };
+              readonly customerName: {
+                readonly nullable: false;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/text@1' };
+              };
               readonly designId: {
                 readonly nullable: false;
                 readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/int4@1' };
@@ -1161,9 +1206,17 @@ type ContractBase = Omit<
                 readonly nullable: false;
                 readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/int4@1' };
               };
+              readonly idempotencyKey: {
+                readonly nullable: false;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/text@1' };
+              };
               readonly notes: {
                 readonly nullable: true;
                 readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/text@1' };
+              };
+              readonly notifyAttempts: {
+                readonly nullable: false;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/int4@1' };
               };
               readonly printerNotifiedAt: {
                 readonly nullable: true;
@@ -1239,9 +1292,13 @@ type ContractBase = Omit<
               readonly fields: {
                 readonly address: { readonly column: 'address' };
                 readonly createdAt: { readonly column: 'createdAt' };
+                readonly customerEmail: { readonly column: 'customerEmail' };
+                readonly customerName: { readonly column: 'customerName' };
                 readonly designId: { readonly column: 'designId' };
                 readonly id: { readonly column: 'id' };
+                readonly idempotencyKey: { readonly column: 'idempotencyKey' };
                 readonly notes: { readonly column: 'notes' };
+                readonly notifyAttempts: { readonly column: 'notifyAttempts' };
                 readonly printerNotifiedAt: { readonly column: 'printerNotifiedAt' };
                 readonly sendAt: { readonly column: 'sendAt' };
                 readonly size: { readonly column: 'size' };

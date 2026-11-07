@@ -276,6 +276,11 @@ RESEND_API_KEY="your-resend-api-key"
 PRINTER_EMAIL="printer@example.com"
 
 OPENAI_API_KEY="your-openai-api-key"
+
+ORDER_POLLER_ENABLED=false
+INTERNAL_TICK_SECRET="replace-with-at-least-32-random-characters"
+TICK_BUDGET_MS=30000
+GRACE_PERIOD_MS=600000
 ```
 
 Notes:
@@ -300,11 +305,24 @@ Notes:
 
 ### Prisma Compute scheduler
 
-When an external scheduler calls `POST /internal/tick`, set
-`ORDER_POLLER_ENABLED=false` exactly to prevent each application instance from
-also starting its own poller. Configure the external request with the
-`x-internal-secret` header; store the same 32+ character secret as
-`INTERNAL_TICK_SECRET`. The endpoint has no global API prefix.
+The Composer deployment provisions a cron scheduler and a runner for the
+`orderTick` job every `1m`. The runner boots the Nest application context and
+calls `OrderNotifierService.runCycle` using `TICK_BUDGET_MS`; invalid values
+default to 30 seconds and values above 45 seconds are capped at 45 seconds.
+
+Set `ORDER_POLLER_ENABLED=false` exactly so neither the API service nor the cron
+runner starts an additional in-process poller. The value is case-sensitive;
+unset values and all other strings enable the poller. Composer receives runtime
+configuration from the Prisma project environment, with credentials bound as
+secret inputs; never commit their values. Ensure the deployment process itself
+does not override this setting with a different value from its local
+environment.
+
+`POST /internal/tick` remains available for an authenticated manual/HTTP
+trigger. It requires the `x-internal-secret` header and a 32+ character
+`INTERNAL_TICK_SECRET`. The endpoint has no global API prefix. The Composer
+schedule uses its service-to-service trigger and does not call this HTTP
+endpoint.
 
 ## Database and Prisma
 

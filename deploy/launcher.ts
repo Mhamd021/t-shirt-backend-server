@@ -1,9 +1,7 @@
 import service from "./service.ts";
+import { applyAppInput } from "./runtime-input.ts";
 
-try {
-  process.env.DATABASE_URL = service.load().database.url;
-} catch {
- 
-}
+applyAppInput(service.input());
+process.env.DATABASE_URL = service.load().database.url;
 
 await import("../dist/main.js");

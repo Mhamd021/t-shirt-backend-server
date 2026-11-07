@@ -36,12 +36,13 @@ lerna-debug.log*
 !.vscode/extensions.json
 
 # dotenv environment variable files
-.env
-.env.development.local
-.env.test.local
-.env.production.local
-.env.local
-.env.production
+.env*
+!.env.example
+
+# Prisma Composer local state
+.alchemy/
+.prisma-composer/
+
 # temp directory
 .temp
 .tmp
@@ -60,3 +61,4 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 /generated/prisma
 
 bundle/
+.prisma/

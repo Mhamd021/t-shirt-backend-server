@@ -412,6 +412,20 @@
                   }
                 }
               },
+              "customerEmail": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "customerName": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
               "designId": {
                 "nullable": false,
                 "type": {
@@ -426,10 +440,24 @@
                   "kind": "scalar"
                 }
               },
+              "idempotencyKey": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
               "notes": {
                 "nullable": true,
                 "type": {
                   "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "notifyAttempts": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/int4@1",
                   "kind": "scalar"
                 }
               },
@@ -533,14 +561,26 @@
                 "createdAt": {
                   "column": "createdAt"
                 },
+                "customerEmail": {
+                  "column": "customerEmail"
+                },
+                "customerName": {
+                  "column": "customerName"
+                },
                 "designId": {
                   "column": "designId"
                 },
                 "id": {
                   "column": "id"
                 },
+                "idempotencyKey": {
+                  "column": "idempotencyKey"
+                },
                 "notes": {
                   "column": "notes"
+                },
+                "notifyAttempts": {
+                  "column": "notifyAttempts"
                 },
                 "printerNotifiedAt": {
                   "column": "printerNotifiedAt"
@@ -1045,6 +1085,16 @@
                     "precision": 3
                   }
                 },
+                "customerEmail": {
+                  "codecId": "pg/text@1",
+                  "dataType": "pg/text",
+                  "nullable": false
+                },
+                "customerName": {
+                  "codecId": "pg/text@1",
+                  "dataType": "pg/text",
+                  "nullable": false
+                },
                 "designId": {
                   "codecId": "pg/int4@1",
                   "dataType": "pg/int4",
@@ -1059,10 +1109,24 @@
                   },
                   "nullable": false
                 },
+                "idempotencyKey": {
+                  "codecId": "pg/text@1",
+                  "dataType": "pg/text",
+                  "nullable": false
+                },
                 "notes": {
                   "codecId": "pg/text@1",
                   "dataType": "pg/text",
                   "nullable": true
+                },
+                "notifyAttempts": {
+                  "codecId": "pg/int4@1",
+                  "dataType": "pg/int4",
+                  "default": {
+                    "kind": "literal",
+                    "value": 0
+                  },
+                  "nullable": false
                 },
                 "printerNotifiedAt": {
                   "codecId": "pg/timestamp-string@1",
@@ -1182,7 +1246,15 @@
                 ],
                 "name": "Order_pkey"
               },
-              "uniques": []
+              "uniques": [
+                {
+                  "columns": [
+                    "userId",
+                    "idempotencyKey"
+                  ],
+                  "name": "Order_userId_idempotencyKey_key"
+                }
+              ]
             },
             "User": {
               "columns": {
@@ -1313,7 +1385,7 @@
         "kind": "postgres-schema"
       }
     },
-    "storageHash": "bd83954e90f9de2326eb07e90ea47b7767a27ac30414ca991a0a250cdb2ebf3b"
+    "storageHash": "eedfe38ca425b7214e5f6dd247a7cd63d0ca0f9145a0a587c848811aed42072f"
   },
   "capabilities": {
     "postgres": {
